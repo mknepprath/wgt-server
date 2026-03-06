@@ -9,6 +9,7 @@ const playerGames = new Map();
 const ALLOWED_ORIGINS = [
   'https://mknepprath.com',
   'https://www.mknepprath.com',
+  'https://wgt-server-production.up.railway.app',
   'http://localhost:3000',
   'http://localhost:3001'
 ];
