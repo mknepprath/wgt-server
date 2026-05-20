@@ -287,17 +287,39 @@ chessNamespace.on('connection', (socket) => {
     } catch (e) { socket.emit('error', { message: e.message }); }
   });
 
+  socket.on('rejoinGame', (data) => {
+    try {
+      const gameCode = (data.gameCode || '').toUpperCase();
+      const game = chessGames.get(gameCode);
+      if (!game) throw new Error('Game not found');
+      const player = game.players.find(p => p.id === data.playerId && !p.isBot);
+      if (!player) throw new Error('Player not found');
+      chessPlayerGames.delete(player.id);
+      chessPlayerGames.set(socket.id, gameCode);
+      player.id = socket.id;
+      player.connected = true;
+      player.lastSeen = Date.now();
+      socket.join(gameCode);
+      if (game.singlePlayer && game.gameStarted && !game.gameEnded && !game.botLoopActive) {
+        chessServer.startBotRealtimeLoop(game, (g) => {
+          chessNamespace.to(gameCode).emit('gameStateUpdate', g);
+        });
+      }
+      socket.emit('gameStateUpdate', game);
+    } catch (e) { socket.emit('error', { message: e.message }); }
+  });
+
   socket.on('disconnect', () => {
     const gameCode = chessPlayerGames.get(socket.id);
     if (gameCode) {
       const game = chessGames.get(gameCode);
       if (game) {
+        const player = game.players.find(p => p.id === socket.id);
+        if (player) { player.connected = false; player.lastSeen = Date.now(); }
         if (game.singlePlayer) {
           chessServer.stopBot(game);
-          chessGames.delete(gameCode);
+          // Keep the game alive so the player can rejoin; TTL cleans it up.
         } else {
-          const player = game.players.find(p => p.id === socket.id);
-          if (player) { player.connected = false; player.lastSeen = Date.now(); }
           chessNamespace.to(gameCode).emit('gameStateUpdate', game);
         }
       }
