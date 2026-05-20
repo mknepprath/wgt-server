@@ -287,6 +287,12 @@ chessNamespace.on('connection', (socket) => {
     } catch (e) { socket.emit('error', { message: e.message }); }
   });
 
+  socket.on('cursorUpdate', (data) => {
+    if (data.gameCode) {
+      socket.to(data.gameCode).emit('opponentCursor', { hover: data.hover ?? null, selected: data.selected ?? null });
+    }
+  });
+
   socket.on('rejoinGame', (data) => {
     try {
       const gameCode = (data.gameCode || '').toUpperCase();
