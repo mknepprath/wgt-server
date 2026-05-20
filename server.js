@@ -244,12 +244,29 @@ chessNamespace.on('connection', (socket) => {
     } catch (e) { socket.emit('error', { message: e.message }); }
   });
 
+  socket.on('createSinglePlayerGame', (data) => {
+    try {
+      const result = chessServer.createSinglePlayerGame(data.playerName, socket.id);
+      chessGames.set(result.gameCode, result.game);
+      chessPlayerGames.set(socket.id, result.gameCode);
+      socket.join(result.gameCode);
+      socket.emit('gameCreated', { gameId: result.gameCode, playerId: socket.id });
+      socket.emit('gameStateUpdate', result.game);
+    } catch (e) { socket.emit('error', { message: e.message }); }
+  });
+
   socket.on('movePiece', (data) => {
     try {
       const game = chessGames.get(data.gameCode);
       if (!game) throw new Error('Game not found');
       const result = chessServer.moveChessPiece(game, socket.id, data.from, data.to);
       chessNamespace.to(data.gameCode).emit('gameStateUpdate', result.game);
+      if (game.singlePlayer && !game.gameEnded) {
+        game.playerMoveCount++;
+        chessServer.scheduleBotTurn(game, (g) => {
+          chessNamespace.to(data.gameCode).emit('gameStateUpdate', g);
+        });
+      }
     } catch (e) { socket.emit('error', { message: e.message }); }
   });
 
@@ -257,8 +274,16 @@ chessNamespace.on('connection', (socket) => {
     try {
       const game = chessGames.get(data.gameCode);
       if (!game) throw new Error('Game not found');
-      const result = chessServer.playAgain(game, socket.id);
-      chessNamespace.to(data.gameCode).emit('gameStateUpdate', result.game);
+      if (game.singlePlayer) {
+        const result = chessServer.playAgainSinglePlayer(game, socket.id);
+        chessNamespace.to(data.gameCode).emit('gameStateUpdate', result.game);
+        chessServer.startBotRealtimeLoop(game, (g) => {
+          chessNamespace.to(data.gameCode).emit('gameStateUpdate', g);
+        });
+      } else {
+        const result = chessServer.playAgain(game, socket.id);
+        chessNamespace.to(data.gameCode).emit('gameStateUpdate', result.game);
+      }
     } catch (e) { socket.emit('error', { message: e.message }); }
   });
 
@@ -267,9 +292,14 @@ chessNamespace.on('connection', (socket) => {
     if (gameCode) {
       const game = chessGames.get(gameCode);
       if (game) {
-        const player = game.players.find(p => p.id === socket.id);
-        if (player) { player.connected = false; player.lastSeen = Date.now(); }
-        chessNamespace.to(gameCode).emit('gameStateUpdate', game);
+        if (game.singlePlayer) {
+          chessServer.stopBot(game);
+          chessGames.delete(gameCode);
+        } else {
+          const player = game.players.find(p => p.id === socket.id);
+          if (player) { player.connected = false; player.lastSeen = Date.now(); }
+          chessNamespace.to(gameCode).emit('gameStateUpdate', game);
+        }
       }
       chessPlayerGames.delete(socket.id);
     }
@@ -292,6 +322,7 @@ setInterval(() => {
   const maxAge = 2 * 60 * 60 * 1000;
   for (const [code, game] of chessGames.entries()) {
     if (now - game.lastActivity > maxAge) {
+      if (game.singlePlayer) chessServer.stopBot(game);
       for (const p of game.players) chessPlayerGames.delete(p.id);
       chessGames.delete(code);
     }
