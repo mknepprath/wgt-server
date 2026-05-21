@@ -213,7 +213,7 @@ chessNamespace.on('connection', (socket) => {
 
   socket.on('createGame', (data) => {
     try {
-      const result = chessServer.createGame(data.playerName, socket.id);
+      const result = chessServer.createGame(data.playerName, socket.id, data.mapId);
       chessGames.set(result.gameCode, result.game);
       chessPlayerGames.set(socket.id, result.gameCode);
       socket.join(result.gameCode);
@@ -246,7 +246,7 @@ chessNamespace.on('connection', (socket) => {
 
   socket.on('createSinglePlayerGame', (data) => {
     try {
-      const result = chessServer.createSinglePlayerGame(data.playerName, socket.id);
+      const result = chessServer.createSinglePlayerGame(data.playerName, socket.id, data.mapId);
       chessGames.set(result.gameCode, result.game);
       chessPlayerGames.set(socket.id, result.gameCode);
       socket.join(result.gameCode);
