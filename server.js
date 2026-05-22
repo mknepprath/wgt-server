@@ -244,6 +244,18 @@ chessNamespace.on('connection', (socket) => {
     } catch (e) { socket.emit('error', { message: e.message }); }
   });
 
+  socket.on('fillWithBots', (data) => {
+    try {
+      const game = chessGames.get(data.gameCode);
+      if (!game) throw new Error('Game not found');
+      const result = chessServer.startGameWithBots(game, socket.id);
+      chessNamespace.to(data.gameCode).emit('gameStateUpdate', result.game);
+      chessServer.startBotRealtimeLoop(game, (g) => {
+        chessNamespace.to(data.gameCode).emit('gameStateUpdate', g);
+      });
+    } catch (e) { socket.emit('error', { message: e.message }); }
+  });
+
   socket.on('createSinglePlayerGame', (data) => {
     try {
       const result = chessServer.createSinglePlayerGame(data.playerName, socket.id, data.mapId);
