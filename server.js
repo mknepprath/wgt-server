@@ -1,6 +1,6 @@
 const { createServer } = require('http');
 const { Server } = require('socket.io');
-const { createGame, joinGame, startGame, placeCard, revealThing, playAgain } = require('./lib/game-server.js');
+const { createGame, joinGame, startGame, placeCard, playAgain, viewFor } = require('./lib/game-server.js');
 const chessServer = require('./lib/chess-server.js');
 
 // Game state storage
@@ -42,6 +42,14 @@ const io = new Server(server, {
 
 const gameNamespace = io.of('/who-goes-there');
 
+// Each player gets their own view so hands and the Thing stay secret
+function broadcast(game) {
+  for (const player of game.players) {
+    const socket = gameNamespace.sockets.get(player.id);
+    if (socket) socket.emit('gameStateUpdate', viewFor(game, player.id));
+  }
+}
+
 gameNamespace.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
@@ -53,7 +61,7 @@ gameNamespace.on('connection', (socket) => {
 
       socket.join(result.gameCode);
       socket.emit('gameCreated', { gameId: result.gameCode, playerId: socket.id });
-      socket.emit('gameStateUpdate', result.game);
+      socket.emit('gameStateUpdate', viewFor(result.game, socket.id));
 
       console.log(`Game created: ${result.gameCode} by ${data.playerName}`);
     } catch (error) {
@@ -75,7 +83,7 @@ gameNamespace.on('connection', (socket) => {
 
       socket.join(gameCode);
       socket.emit('gameJoined', { gameId: gameCode, playerId: socket.id });
-      gameNamespace.to(gameCode).emit('gameStateUpdate', result.game);
+      broadcast(result.game);
 
       console.log(`Player ${data.playerName} joined game ${gameCode}`);
     } catch (error) {
@@ -92,11 +100,10 @@ gameNamespace.on('connection', (socket) => {
         throw new Error('Game not found');
       }
 
-      const queensVariant = data.queensVariant || false;
-      const result = startGame(game, socket.id, queensVariant);
-      gameNamespace.to(gameCode).emit('gameStateUpdate', result.game);
+      const result = startGame(game, socket.id);
+      broadcast(result.game);
 
-      console.log(`Game started: ${gameCode} (Queens Variant: ${queensVariant})`);
+      console.log(`Game started: ${gameCode}`);
     } catch (error) {
       socket.emit('error', { message: error.message });
     }
@@ -112,27 +119,9 @@ gameNamespace.on('connection', (socket) => {
       }
 
       const result = placeCard(game, socket.id, data.cardIndex, data.position);
-      gameNamespace.to(gameCode).emit('gameStateUpdate', result.game);
+      broadcast(result.game);
 
       console.log(`Card placed in game ${gameCode} at ${data.position}`);
-    } catch (error) {
-      socket.emit('error', { message: error.message });
-    }
-  });
-
-  socket.on('revealThing', (data) => {
-    try {
-      const gameCode = data.gameCode;
-      const game = games.get(gameCode);
-
-      if (!game) {
-        throw new Error('Game not found');
-      }
-
-      const result = revealThing(game, socket.id);
-      gameNamespace.to(gameCode).emit('gameStateUpdate', result.game);
-
-      console.log(`Thing revealed in game ${gameCode}: ${result.game.thingSuit}`);
     } catch (error) {
       socket.emit('error', { message: error.message });
     }
@@ -148,7 +137,7 @@ gameNamespace.on('connection', (socket) => {
       }
 
       const result = playAgain(game, socket.id);
-      gameNamespace.to(gameCode).emit('gameStateUpdate', result.game);
+      broadcast(result.game);
 
       console.log(`New round started in game ${gameCode}`);
     } catch (error) {
@@ -167,7 +156,7 @@ gameNamespace.on('connection', (socket) => {
         if (player) {
           player.connected = false;
           player.lastSeen = Date.now();
-          gameNamespace.to(gameCode).emit('gameStateUpdate', game);
+          broadcast(game);
         }
       }
       playerGames.delete(socket.id);
